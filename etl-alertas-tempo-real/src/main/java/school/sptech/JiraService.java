@@ -28,23 +28,29 @@ public class JiraService {
      */
     public static JSONArray buscarTodosTicketsAAC() {
         JSONArray todos = new JSONArray();
-        int startAt = 0;
+        String nextPageToken = null;
 
         try {
             while (true) {
-
-                String endpoint = JIRA_SEARCH_URL
-                        + "?jql=project=AAC"
-                        + "&fields=key,description"
-                        + "&maxResults=50"
-                        + "&startAt=" + startAt;
-
-                URL url = new URL(endpoint);
+                URL url = new URL("https://autoboticssptech.atlassian.net/rest/api/3/search/jql");
                 HttpURLConnection con = (HttpURLConnection) url.openConnection();
-
-                con.setRequestMethod("GET");
+                con.setRequestMethod("POST");
+                con.setDoOutput(true);
                 con.setRequestProperty("Authorization", authHeader());
+                con.setRequestProperty("Content-Type", "application/json");
                 con.setRequestProperty("Accept", "application/json");
+
+                JSONObject body = new JSONObject();
+                body.put("jql", "project = AAC"); // seu JQL
+                body.put("fields", new JSONArray().put("key").put("description"));
+                body.put("maxResults", 50); // ou outro valor
+
+                if (nextPageToken != null) {
+                    body.put("nextPageToken", nextPageToken);
+                }
+
+                String bodyStr = body.toString();
+                con.getOutputStream().write(bodyStr.getBytes(StandardCharsets.UTF_8));
 
                 int status = con.getResponseCode();
                 System.out.println("STATUS HTTP → " + status);
@@ -57,29 +63,33 @@ public class JiraService {
                                 StandardCharsets.UTF_8
                         )
                 );
-
                 StringBuilder responseTxt = new StringBuilder();
                 String line;
-                while ((line = br.readLine()) != null) responseTxt.append(line);
+                while ((line = br.readLine()) != null) {
+                    responseTxt.append(line);
+                }
 
                 JSONObject json = new JSONObject(responseTxt.toString());
 
+                // Se não houver issues, para
                 if (!json.has("issues")) break;
 
                 JSONArray issues = json.getJSONArray("issues");
-
-                System.out.println("JSON RETORNADO:");
-                System.out.println(json.toString());
-
-                // adiciona ao array final
                 for (int i = 0; i < issues.length(); i++) {
                     todos.put(issues.getJSONObject(i));
                 }
 
-                boolean isLast = json.optBoolean("isLast", true);
-                if (isLast || issues.length() == 0) break;
+                // Pegue o token para a próxima página
+                if (json.has("nextPageToken")) {
+                    nextPageToken = json.getString("nextPageToken");
+                } else {
+                    break;
+                }
 
-                startAt += issues.length();
+                // Se o próximo token vier vazio ou null, para
+                if (nextPageToken == null || nextPageToken.isBlank()) {
+                    break;
+                }
             }
 
         } catch (Exception e) {
